@@ -8,14 +8,28 @@ from googleapiclient.discovery import build
 # Load the Llama 3 8B Instruct model
 model = GPT4All("Phi-3-mini-4k-instruct.Q4_0.gguf")
 
-# Model configuration settings
-MODEL_SETTINGS = {
-    "temp": 0.0,  # Controls randomness; lower = more focused and deterministic
-    "top_p": 0.5,       # Nucleus sampling; lower = more predictable
-    "top_k": 1,        # Limits token selection pool; smaller = more focused
-    "repeat_penalty": 2.5,  # Penalizes repetitive sequences; >1 reduces repetitions
-}
 
+# Model configuration settings
+# MODEL_SETTINGS = {
+#     "temp": 0.0,  # Controls randomness; lower = more focused and deterministic
+#     "top_p": 0.0,       # Nucleus sampling; lower = more predictable
+#     "top_k": 1,        # Limits token selection pool; smaller = more focused
+#     "repeat_penalty": .0,  # Penalizes repetitive sequences; >1 reduces repetitions
+#     "max_tokens": 150,
+
+# }
+
+MODEL_SETTINGS = {
+    "temp": 0.0,            # Strictly deterministic output
+    "top_p": 0.0,           # Disable nucleus sampling for predictability
+    "top_k": 1,             # Always pick the most probable token
+    "repeat_penalty": 1.18, # Penalize repetition
+    "repeat_last_n": 64,    # Apply penalty to the last 64 tokens
+    "max_tokens": 35,      # Limit the response length
+    "n_batch": 8,           # Token processing batch size
+    "n_predict": None,      # Use max_tokens if unset
+    "streaming": False,     # Generate the complete JSON object before returning
+}
 # Define the Gmail API scope
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 
@@ -58,7 +72,7 @@ def process_emails_with_llm(service):
     """
     try:
         # Get the list of messages in the inbox
-        results = service.users().messages().list(userId='me', maxResults=1).execute()
+        results = service.users().messages().list(userId='me', maxResults=10).execute()
         messages = results.get('messages', [])
 
         if not messages:
@@ -107,9 +121,6 @@ def process_emails_with_llm(service):
                 f"%2<end>\n"
             )
 
- 
-
-
             # Generate LLM response
             llm_response = model.generate(prompt, **MODEL_SETTINGS)
 
@@ -117,82 +128,6 @@ def process_emails_with_llm(service):
 
     except Exception as error:
         print(f"An error occurred while fetching the email: {error}")
-
-
-# def process_emails_with_llm(service):
-#     """
-#     Fetch the latest email from the inbox and print its subject and sender.
-#     """
-#     try:
-#         # Get the list of messages in the inbox
-#         results = service.users().messages().list(userId='me', maxResults=1).execute()
-#         messages = results.get('messages', [])
-
-#         if not messages:
-#             print("No messages found.")
-#             return
-        
-#         print("Last 100 Emails:")
-#         # Get the details of the latest message
-#         for message_metadata in messages:
-#             # Fetch the email details for each message
-#             message_id = message_metadata['id']
-#             message = service.users().messages().get(userId='me', id=message_id, format='metadata').execute()
-
-#             # Extract headers from the message
-#             headers = message.get('payload', {}).get('headers', [])
-#             subject = next((header['value'] for header in headers if header['name'] == 'Subject'), "No Subject")
-#             sender = next((header['value'] for header in headers if header['name'] == 'From'), "Unknown Sender")
-
-#             # Call the LLM with the email details
-#         #     prompt = f"""
-#         #     Classify the following email into the specified JSON format. For this email:
-#         #     Subject: ‘{subject}’
-#         #     Sender: ‘{sender}’
-
-#         #     Provide your response in **exactly** this JSON format:
-#         # {{
-#         #     "Category": "<Work, School, or Shopping>",
-#         #     "Priority": "<Important or Normal>",
-#         #     "RequiresResponse": "<Yes or No>"
-#         # }}
-
-#         # Only provide the JSON output and nothing else. Do not include any explanations, additional text, or repeated instructions. 
-#         # """
-#             prompt = f"""
-#             Classify the following email into the specified JSON format. Use the provided categories, and ensure the response is a single, valid JSON object.
-
-#             Email details:
-#             Subject: "{subject}"
-#             Sender: "{sender}"
-
-#             Provide your response in this JSON format:
-#             {{
-#                 "Category": "<Work, School, or Shopping>",
-#                 "Priority": "<Important or Normal>",
-#                 "RequiresResponse": "<Yes or No>"
-#             }}
-
-#             Example Response:
-#             {{
-#                 "Category": "Work",
-#                 "Priority": "Normal",
-#                 "RequiresResponse": "No"
-#             }}
-
-#             Important Instructions:
-#             1. Provide only a single JSON object in the exact format above.
-#             2. Do not include any additional text, explanations, or empty lines.
-#             3. Ensure proper capitalization of keys and values.
-
-#             Now classify the email:
-#             """
-#             llm_response = model.generate(prompt, **MODEL_SETTINGS)
-
-#             print(f"LLM Response: {llm_response}\n")
-
-#     except Exception as error:
-#         print(f"An error occurred while fetching the email: {error}")
 
 
 if __name__ == "__main__":
