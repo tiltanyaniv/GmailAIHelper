@@ -4,20 +4,13 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
+import redis
+import json
+
 
 # Load the Llama 3 8B Instruct model
 model = GPT4All("Phi-3-mini-4k-instruct.Q4_0.gguf")
 
-
-# Model configuration settings
-# MODEL_SETTINGS = {
-#     "temp": 0.0,  # Controls randomness; lower = more focused and deterministic
-#     "top_p": 0.0,       # Nucleus sampling; lower = more predictable
-#     "top_k": 1,        # Limits token selection pool; smaller = more focused
-#     "repeat_penalty": .0,  # Penalizes repetitive sequences; >1 reduces repetitions
-#     "max_tokens": 150,
-
-# }
 
 MODEL_SETTINGS = {
     "temp": 0.0,            # Strictly deterministic output
@@ -33,6 +26,8 @@ MODEL_SETTINGS = {
 # Define the Gmail API scope
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 
+# Initialize Redis client
+redis_client = redis.StrictRedis(host='localhost', port=6379, db=0, decode_responses=True)
 
 def authenticate_gmail():
     """
@@ -65,6 +60,29 @@ def authenticate_gmail():
     # Build and return the Gmail API service object
     return build('gmail', 'v1', credentials=creds)
 
+
+def fetch_from_cache_or_call_llm(prompt):
+    """
+    Check Redis cache for the LLM response. If not found, call LLM and cache the response for 4 hours.
+    """
+    try:
+        # Check Redis cache
+        cached_response = redis_client.get(prompt)
+        if cached_response:
+            print("Cache hit: Returning cached response.")
+            return json.loads(cached_response)
+
+        print("Cache miss: Calling LLM.")
+        # Call the LLM if not in cache
+        response = model.generate(prompt, **MODEL_SETTINGS)
+
+        # Cache the response for 4 hours (14400 seconds)
+        redis_client.setex(prompt, 14400, json.dumps(response))  # Save response as JSON string
+        return response
+    except Exception as e:
+        print(f"Error with Redis or LLM: {e}")
+        return None
+
 # Updated process_emails_with_llm function
 def process_emails_with_llm(service):
     """
@@ -72,7 +90,7 @@ def process_emails_with_llm(service):
     """
     try:
         # Get the list of messages in the inbox
-        results = service.users().messages().list(userId='me', maxResults=10).execute()
+        results = service.users().messages().list(userId='me', maxResults=100).execute()
         messages = results.get('messages', [])
 
         if not messages:
@@ -121,10 +139,10 @@ def process_emails_with_llm(service):
                 f"%2<end>\n"
             )
 
-            # Generate LLM response
-            llm_response = model.generate(prompt, **MODEL_SETTINGS)
-
+            # Fetch response from Redis or call LLM
+            llm_response = fetch_from_cache_or_call_llm(prompt)
             print(f"LLM Response: {llm_response}\n")
+
 
     except Exception as error:
         print(f"An error occurred while fetching the email: {error}")
