@@ -6,6 +6,9 @@ from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 import redis
 import json
+import matplotlib.pyplot as plt
+from matplotlib import cm
+import re
 
 
 # Load the Llama 3 8B Instruct model
@@ -76,6 +79,9 @@ def fetch_from_cache_or_call_llm(prompt):
         # Call the LLM if not in cache
         response = model.generate(prompt, **MODEL_SETTINGS)
 
+        # Clean up the response to ensure valid JSON
+        response = clean_llm_response(response)
+
         # Cache the response for 4 hours (14400 seconds)
         redis_client.setex(prompt, 14400, json.dumps(response))  # Save response as JSON string
         return response
@@ -83,12 +89,30 @@ def fetch_from_cache_or_call_llm(prompt):
         print(f"Error with Redis or LLM: {e}")
         return None
 
+    
+def clean_llm_response(response):
+    """
+    Clean and validate the LLM response to ensure it contains only JSON data.
+    """
+    try:
+        # Extract the first valid JSON object from the response using a regular expression
+        match = re.search(r'{.*}', response, re.DOTALL)
+        if match:
+            return json.loads(match.group())  # Convert to JSON object
+        else:
+            raise ValueError("No valid JSON found in the response.")
+    except Exception as e:
+        print(f"Failed to clean and parse LLM response: {e}")
+        return {"Category": "Uncategorized", "Priority": "", "RequiresResponse": ""}  # Fallback default
+
 # Updated process_emails_with_llm function
 def process_emails_with_llm(service):
     """
     Fetch the latest email from the inbox and print its subject and sender.
     """
     try:
+        # Initialize a dictionary to store category counts
+        category_counts = {"Work": 0, "School": 0, "Shopping": 0, "Uncategorized": 0}
         # Get the list of messages in the inbox
         results = service.users().messages().list(userId='me', maxResults=100).execute()
         messages = results.get('messages', [])
@@ -141,11 +165,52 @@ def process_emails_with_llm(service):
 
             # Fetch response from Redis or call LLM
             llm_response = fetch_from_cache_or_call_llm(prompt)
-            print(f"LLM Response: {llm_response}\n")
+            
+            # Clean the response before printing it
+            cleaned_response = clean_llm_response(llm_response)
+            print(f"LLM Response: {json.dumps(cleaned_response, indent=4)}\n")
+
+            # Parse the response and update category counts
+            try:
+                response_data = clean_llm_response(llm_response)
+                category = response_data.get("Category", "Uncategorized")
+                if category in category_counts:
+                    category_counts[category] += 1
+                else:
+                    category_counts["Uncategorized"] += 1
+            except json.JSONDecodeError as e:
+                print(f"Failed to parse LLM response: {e}")
+                category_counts["Uncategorized"] += 1
+        
+        # Generate a pie chart with the collected data
+        plot_email_category_pie_chart(category_counts)
 
 
     except Exception as error:
         print(f"An error occurred while fetching the email: {error}")
+
+def plot_email_category_pie_chart(category_counts):
+    """
+    Generate a pie chart showing the percentage of emails in each category.
+    """
+    labels = [label for label, count in category_counts.items() if count > 0]
+    sizes = [count for count in category_counts.values() if count > 0]
+
+    # Generate colors from the colormap
+    colors = plt.colormaps['tab20'](range(len(sizes)))
+
+    # Plotting the pie chart
+    plt.figure(figsize=(8, 6))
+    plt.pie(
+        sizes,
+        labels=labels,
+        autopct='%1.1f%%',
+        startangle=140,
+        colors=colors
+    )
+    plt.title("Email Categories")
+    plt.axis('equal')  # Equal aspect ratio ensures the pie chart is circular
+    plt.show()
 
 
 if __name__ == "__main__":
