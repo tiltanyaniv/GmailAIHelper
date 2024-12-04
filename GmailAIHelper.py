@@ -89,22 +89,26 @@ def fetch_from_cache_or_call_llm(prompt):
         print(f"Error with Redis or LLM: {e}")
         return None
 
-    
 def clean_llm_response(response):
     """
     Clean and validate the LLM response to ensure it contains only JSON data.
     """
     try:
-        # Extract the first valid JSON object from the response using a regular expression
-        match = re.search(r'{.*}', response, re.DOTALL)
-        if match:
-            return json.loads(match.group())  # Convert to JSON object
-        else:
-            raise ValueError("No valid JSON found in the response.")
-    except Exception as e:
-        print(f"Failed to clean and parse LLM response: {e}")
-        return {"Category": "Uncategorized", "Priority": "", "RequiresResponse": ""}  # Fallback default
+        # If the response is already a dictionary, return it as is
+        if isinstance(response, dict):
+            return response
 
+        # Otherwise, assume it's a raw string and try to parse it as JSON
+        response = response.strip()  # Remove extra whitespace
+        return json.loads(response)
+    except json.JSONDecodeError as e:
+        print(f"Failed to parse LLM response as JSON: {e}")
+    except Exception as e:
+        print(f"Unexpected error in cleaning response: {e}")
+
+    # If parsing fails, return a default fallback
+    return {"Category": "Uncategorized", "Priority": "", "RequiresResponse": ""}
+    
 # Updated process_emails_with_llm function
 def process_emails_with_llm(service):
     """
@@ -114,7 +118,7 @@ def process_emails_with_llm(service):
         # Initialize a dictionary to store category counts
         category_counts = {"Work": 0, "School": 0, "Shopping": 0, "Uncategorized": 0}
         # Get the list of messages in the inbox
-        results = service.users().messages().list(userId='me', maxResults=100).execute()
+        results = service.users().messages().list(userId='me', maxResults=5).execute()
         messages = results.get('messages', [])
 
         if not messages:
@@ -165,6 +169,8 @@ def process_emails_with_llm(service):
 
             # Fetch response from Redis or call LLM
             llm_response = fetch_from_cache_or_call_llm(prompt)
+
+            print(llm_response)
             
             # Clean the response before printing it
             cleaned_response = clean_llm_response(llm_response)
