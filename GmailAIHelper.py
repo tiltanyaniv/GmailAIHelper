@@ -118,7 +118,7 @@ def process_emails_with_llm(service):
         # Initialize a dictionary to store category counts
         category_counts = {"Work": 0, "School": 0, "Shopping": 0, "Uncategorized": 0}
         # Get the list of messages in the inbox
-        results = service.users().messages().list(userId='me', maxResults=5).execute()
+        results = service.users().messages().list(userId='me', maxResults=100).execute()
         messages = results.get('messages', [])
 
         if not messages:
@@ -160,7 +160,7 @@ def process_emails_with_llm(service):
                 f"1. Output *only* a single JSON object in the exact format provided above.\n"
                 f"2. *Do not include any additional text, comments, explanations, or blank lines.*\n"
                 f"3. Your response *must* be a valid JSON object with proper capitalization, syntax (double quotes, etc.), and no trailing commas.\n"
-                f"4. If you cannot classify the email, leave the values blank (e.g., \"Category\": \"\") but maintain the JSON structure.\n\n"
+                f"4. If you cannot classify the email, suggest new category\n\n"
                 f"Now classify the email:\n"
                 f"%1<end>\n"
                 f"<assistant>\n"
